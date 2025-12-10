@@ -4,12 +4,16 @@ import '../components/bar.dart';
 
 class Ball extends CircleComponent with HasGameRef, CollisionCallbacks {
   Vector2 velocity = Vector2(150, 200);
-  double speedIncreaseRate = 5.0; // Speed increment per second
+  static const double speedIncreaseRate = 3.0; // Reduced for smoother performance
+  static const double maxSpeed = 800.0; // Reduced max speed
   Function()? onHitBar;
   Function()? onGameOver;
 
-  // Cache radius to avoid repeated calculations
+  // Cache values to avoid repeated calculations
   late double ballRadius;
+  Vector2? _cachedGameSize;
+  double _speedIncreaseCooldown = 0.0;
+  static const double _speedIncreaseInterval = 0.5; // Increase speed every 0.5s
 
   // Add collision cooldown to prevent multiple collisions
   double _collisionCooldown = 0.0;
@@ -36,33 +40,47 @@ class Ball extends CircleComponent with HasGameRef, CollisionCallbacks {
       _collisionCooldown -= dt;
     }
 
-    // Increase speed gradually (less frequently)
-    final currentSpeed = velocity.length;
-    if (currentSpeed < 1000) { // Only increase if below max
-      final newSpeed = currentSpeed + speedIncreaseRate * dt;
-      velocity = velocity.normalized() * newSpeed.clamp(currentSpeed, 1000);
+    // Speed increase cooldown (less frequent calculations)
+    _speedIncreaseCooldown += dt;
+    if (_speedIncreaseCooldown >= _speedIncreaseInterval) {
+      final currentSpeed = velocity.length;
+      if (currentSpeed < maxSpeed) {
+        final increase = speedIncreaseRate * _speedIncreaseCooldown;
+        velocity = velocity.normalized() * (currentSpeed + increase).clamp(currentSpeed, maxSpeed);
+      }
+      _speedIncreaseCooldown = 0.0;
     }
 
     // Move position
     position += velocity * dt;
 
-    // Cache game size for better performance
-    final gameSize = gameRef.size;
+    // Cache game size to avoid repeated property access
+    _cachedGameSize ??= gameRef.size;
+    final gameSize = _cachedGameSize!;
 
-    // Wall collision - simpler approach
-    if (position.x <= ballRadius) {
+    // Wall collision - optimized
+    final x = position.x;
+    final y = position.y;
+    
+    if (x <= ballRadius) {
       position.x = ballRadius;
       velocity.x = velocity.x.abs();
-    } else if (position.x >= gameSize.x - ballRadius) {
+    } else if (x >= gameSize.x - ballRadius) {
       position.x = gameSize.x - ballRadius;
       velocity.x = -velocity.x.abs();
     }
 
     // Game over check
-    if (position.y <= ballRadius || position.y >= gameSize.y - ballRadius) {
+    if (y <= ballRadius || y >= gameSize.y - ballRadius) {
       velocity = Vector2.zero();
       onGameOver?.call();
     }
+  }
+
+  @override
+  void onGameResize(Vector2 size) {
+    super.onGameResize(size);
+    _cachedGameSize = size; // Update cached size on resize
   }
 
   @override

@@ -1,4 +1,4 @@
-package com.example.test_projects
+package com.goal.tanzid
 
 import io.flutter.embedding.android.FlutterActivity
 

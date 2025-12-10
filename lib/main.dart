@@ -1,23 +1,19 @@
 import 'package:flutter/material.dart';
 import 'package:flame/game.dart';
-import 'package:lottie/lottie.dart';
 import 'game/my_game.dart';
+import 'components/animated_background.dart';
 
 void main() {
   runApp(
     MaterialApp(
+      title: 'GOAL',
       debugShowCheckedModeBanner: false,
       home: Scaffold(
         backgroundColor: Colors.black,
         body: Stack(
           children: [
-            Positioned.fill(
-              child: LottieBuilder.asset(
-                'assets/bg.json',
-                fit: BoxFit.contain,
-                frameRate: FrameRate(30.0),
-                alignment: Alignment.center,
-              ),
+            const Positioned.fill(
+              child: AnimatedBackground(),
             ),
             GameWidget<MyGame>(
               game: MyGame(),
