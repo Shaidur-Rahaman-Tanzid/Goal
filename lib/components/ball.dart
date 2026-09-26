@@ -4,16 +4,31 @@ import '../components/bar.dart';
 
 class Ball extends CircleComponent with HasGameRef, CollisionCallbacks {
   Vector2 velocity = Vector2(150, 200);
-  double speedIncreaseRate = 5.0; // Speed increment per second
   Function()? onHitBar;
   Function()? onGameOver;
 
-  // Cache radius to avoid repeated calculations
+  // Ultra-optimized cached values
   late double ballRadius;
-
-  // Add collision cooldown to prevent multiple collisions
+  late Vector2 gameSize;
+  late double gameSizeX;
+  late double gameSizeY;
+  
+  // Highly optimized collision detection
   double _collisionCooldown = 0.0;
-  static const double _cooldownDuration = 0.1; // 100ms cooldown
+  static const double _cooldownDuration = 0.06; // Optimized cooldown
+  
+  // Performance: reduce frequency of expensive operations
+  double _speedUpdateTimer = 0.0;
+  double _positionCheckTimer = 0.0;
+  static const double _speedUpdateInterval = 0.15; // Less frequent speed updates
+  static const double _positionCheckInterval = 0.02; // 50fps position checks
+  
+  // Pre-calculated constants for maximum performance
+  static const double speedIncrement = 2.5;
+  static const double maxSpeed = 750.0;
+  static const double minVerticalSpeed = 70.0;
+  static const double maxHorizontalSpeed = 320.0;
+  static const double wallBounceMultiplier = 0.98; // Slight energy loss on wall bounce
 
   Ball() : super(priority: 1);
 
@@ -23,84 +38,121 @@ class Ball extends CircleComponent with HasGameRef, CollisionCallbacks {
     anchor = Anchor.center;
     add(CircleHitbox());
 
-    // Cache the radius after size is set
-    ballRadius = size.x / 2;
+    // Cache all frequently used values
+    ballRadius = size.x * 0.5; // Faster than division
+    gameSize = gameRef.size;
+    gameSizeX = gameSize.x;
+    gameSizeY = gameSize.y;
   }
 
   @override
   void update(double dt) {
     super.update(dt);
 
-    // Update collision cooldown
+    // Optimized cooldown update
     if (_collisionCooldown > 0) {
       _collisionCooldown -= dt;
     }
 
-    // Increase speed gradually (less frequently)
+    // Ultra-optimized position update (most critical for performance)
+    final velocityX = velocity.x;
+    final velocityY = velocity.y;
+    position.x += velocityX * dt;
+    position.y += velocityY * dt;
+
+    // Reduce frequency of expensive operations
+    _speedUpdateTimer += dt;
+    _positionCheckTimer += dt;
+
+    // Speed updates less frequently
+    if (_speedUpdateTimer >= _speedUpdateInterval) {
+      _speedUpdateTimer = 0.0;
+      _updateSpeedOptimized();
+    }
+
+    // Position checks at controlled frequency
+    if (_positionCheckTimer >= _positionCheckInterval) {
+      _positionCheckTimer = 0.0;
+      _handleBoundaryChecks();
+    }
+  }
+
+  @pragma('vm:prefer-inline')
+  void _updateSpeedOptimized() {
     final currentSpeed = velocity.length;
-    if (currentSpeed < 1000) { // Only increase if below max
-      final newSpeed = currentSpeed + speedIncreaseRate * dt;
-      velocity = velocity.normalized() * newSpeed.clamp(currentSpeed, 1000);
+    if (currentSpeed < maxSpeed) {
+      final speedIncrease = speedIncrement * _speedUpdateInterval;
+      final newSpeed = (currentSpeed + speedIncrease).clamp(currentSpeed, maxSpeed);
+      final normalizer = newSpeed / currentSpeed;
+      velocity.x *= normalizer;
+      velocity.y *= normalizer;
     }
+  }
 
-    // Move position
-    position += velocity * dt;
-
-    // Cache game size for better performance
-    final gameSize = gameRef.size;
-
-    // Wall collision - simpler approach
-    if (position.x <= ballRadius) {
+  @pragma('vm:prefer-inline')
+  void _handleBoundaryChecks() {
+    final posX = position.x;
+    final posY = position.y;
+    
+    // Ultra-optimized wall collisions
+    if (posX <= ballRadius) {
       position.x = ballRadius;
-      velocity.x = velocity.x.abs();
-    } else if (position.x >= gameSize.x - ballRadius) {
-      position.x = gameSize.x - ballRadius;
-      velocity.x = -velocity.x.abs();
+      velocity.x = (velocity.x.abs() * wallBounceMultiplier).clamp(0, maxHorizontalSpeed);
+    } else if (posX >= gameSizeX - ballRadius) {
+      position.x = gameSizeX - ballRadius;
+      velocity.x = (-velocity.x.abs() * wallBounceMultiplier).clamp(-maxHorizontalSpeed, 0);
     }
-
-    // Game over check
-    if (position.y <= ballRadius || position.y >= gameSize.y - ballRadius) {
-      velocity = Vector2.zero();
+    
+    // Game over check (top/bottom boundaries)
+    if (posY <= ballRadius || posY >= gameSizeY - ballRadius) {
+      velocity.setZero();
       onGameOver?.call();
     }
   }
 
   @override
   void onCollision(Set<Vector2> intersectionPoints, PositionComponent other) {
-    if (other is Bar) {
-      // Calculate the collision point relative to the bar's center
-      final barCenter = other.position + other.size / 2;
-      final ballCenter = position;
-
-      // Calculate hit position on the bar (-1 to 1, where 0 is center)
-      final relativeHitX = (ballCenter.x - barCenter.x) / (other.size.x / 2);
-
-      // Reverse vertical direction
-      velocity.y *= -1;
-
-      // Add horizontal component based on where the ball hits the bar
-      // This creates more interesting gameplay
-      velocity.x += relativeHitX * 100; // Adjust multiplier for desired effect
-
-      // Clamp horizontal speed to prevent excessive speeds
-      velocity.x = velocity.x.clamp(-400, 400);
-
-      // Ensure minimum vertical speed to prevent ball getting stuck
-      if (velocity.y.abs() < 50) {
-        velocity.y = velocity.y > 0 ? 50 : -50;
-      }
-
-      // Move ball out of collision to prevent sticking
-      if (other.position.y < gameRef.size.y / 2) {
-        // Top bar - move ball below it
-        position.y = other.position.y + other.size.y + ballRadius + 1;
-      } else {
-        // Bottom bar - move ball above it
-        position.y = other.position.y - ballRadius - 1;
-      }
-
+    if (other is Bar && _collisionCooldown <= 0) {
+      _collisionCooldown = _cooldownDuration;
+      _handleBarCollisionOptimized(other);
       onHitBar?.call();
     }
     super.onCollision(intersectionPoints, other);
+  }
+
+  @pragma('vm:prefer-inline')
+  void _handleBarCollisionOptimized(Bar bar) {
+    // Ultra-fast collision response
+    final barCenterX = bar.position.x + bar.size.x * 0.5;
+    final barHalfWidth = bar.size.x * 0.5;
+    final relativeHitX = ((position.x - barCenterX) / barHalfWidth).clamp(-1.0, 1.0);
+
+    // Optimized velocity changes
+    velocity.y = -velocity.y; // Reverse Y direction
+    velocity.x += relativeHitX * 75; // Add horizontal component
+    
+    // Fast clamping
+    velocity.x = velocity.x.clamp(-maxHorizontalSpeed, maxHorizontalSpeed);
+    
+    // Ensure minimum vertical speed
+    final absVelY = velocity.y.abs();
+    if (absVelY < minVerticalSpeed) {
+      velocity.y = velocity.y > 0 ? minVerticalSpeed : -minVerticalSpeed;
+    }
+
+    // Optimized position correction
+    final isTopBar = bar.position.y < gameSizeY * 0.5;
+    position.y = isTopBar 
+      ? bar.position.y + bar.size.y + ballRadius + 1
+      : bar.position.y - ballRadius - 1;
+  }
+
+  // Method to reset ball state efficiently
+  void resetBall() {
+    position = gameSize * 0.5;
+    velocity.setValues(150, 200);
+    _collisionCooldown = 0.0;
+    _speedUpdateTimer = 0.0;
+    _positionCheckTimer = 0.0;
   }
 }
