@@ -1,7 +1,12 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:goal/main.dart';
 
 void main() {
+  setUp(() async {
+    SharedPreferences.setMockInitialValues({});
+  });
+
   testWidgets('Smoke test app load', (WidgetTester tester) async {
     // Build our app and trigger a frame.
     await tester.pumpWidget(const GameApp());
