@@ -1,40 +1,38 @@
-import 'dart:math';
-import 'dart:ui';
+import 'dart:ui' as ui;
+import 'package:flutter/material.dart';
 
 import 'package:flame/components.dart';
 import 'package:flame/events.dart';
 import 'package:flame/collisions.dart';
 import '../components/ball.dart';
+import '../game/my_game.dart';
+import '../utils/game_theme.dart';
 
 class Bar extends RectangleComponent
-    with CollisionCallbacks, DragCallbacks, HasGameRef {
+    with CollisionCallbacks, DragCallbacks, HasGameReference<MyGame> {
   final bool isBottom;
   bool isPlayerControlled;
 
-  // Ultra-optimized AI system
+  // Cached ball reference
   Ball? _ballCache;
-  double _lastAIUpdate = 0.0;
-  static const double _aiUpdateInterval = 1 / 40; // 40fps AI updates for better performance
-  
-  // High-performance AI tuning
-  static const double aiSpeed = 350.0;
-  static const double predictionMultiplier = 0.1;
-  static const double errorVariance = 12.0;
-  static const double movementThreshold = 2.5;
 
-  // Pre-cached values for maximum performance
+  // AI speed settings
+  static const double aiSpeed = 400.0;
+
+  // Cached layout values
   late double _maxX;
   late double _barHalfWidth;
-  final _random = Random();
-  
-  // AI performance optimizations
-  double _aiCacheTimer = 0.0;
-  double _targetX = 0.0;
-  bool _hasValidTarget = false;
-  static const double _aiCacheInterval = 0.3; // Cache AI calculations
-  
-  // Initialization flag
   bool _isInitialized = false;
+
+  // Pre-cached rendering objects (zero allocations in render loop)
+  late Paint _shadowPaint;
+  late Paint _bodyPaint;
+  late Paint _borderPaint;
+  late Paint _highlightPaint;
+  late Paint _gripPaint;
+  late RRect _rrect;
+  late RRect _shadowRrect;
+  late RRect _highlightRrect;
 
   Bar({required this.isBottom, required this.isPlayerControlled})
       : super(priority: 2);
@@ -42,112 +40,166 @@ class Bar extends RectangleComponent
   @override
   Future<void> onLoad() async {
     super.onLoad();
-    
-    // Optimized paint setup
-    paint = Paint()
-      ..color = const Color(0xFFF457b9d)
-      ..style = PaintingStyle.fill;
-    
+
     add(RectangleHitbox());
-    
-    // Cache all frequently accessed values
-    _maxX = gameRef.size.x - size.x;
-    _barHalfWidth = size.x * 0.5;
+
+    _updateDimensions(size);
+    _initPaints();
     _isInitialized = true;
+  }
+
+  @override
+  void onGameResize(Vector2 size) {
+    super.onGameResize(size);
+    _updateDimensions(size);
+    if (_isInitialized) {
+      _initPaints();
+    }
+  }
+
+  void _updateDimensions(Vector2 gameSize) {
+    _maxX = (gameSize.x - size.x).clamp(0.0, double.infinity);
+    _barHalfWidth = size.x * 0.5;
+
+    final rect = size.toRect();
+    _rrect = RRect.fromRectAndRadius(rect, Radius.circular(size.y * 0.5));
+    _shadowRrect = RRect.fromRectAndRadius(
+      Rect.fromLTWH(rect.left + 2, rect.top + 4, rect.width - 4, rect.height),
+      Radius.circular(size.y * 0.5),
+    );
+    _highlightRrect = RRect.fromRectAndRadius(
+      Rect.fromLTWH(
+        rect.left + 8,
+        rect.top + 2,
+        rect.width - 16,
+        rect.height * 0.35,
+      ),
+      Radius.circular(size.y * 0.25),
+    );
+  }
+
+  void _initPaints() {
+    final baseColor = isBottom ? GameTheme.player1 : GameTheme.player2;
+    final darkColor = isBottom ? GameTheme.player1Dark : GameTheme.player2Dark;
+
+    _shadowPaint = Paint()
+      ..color = Colors.black.withValues(alpha: 0.35)
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 4.0);
+
+    _bodyPaint = Paint()
+      ..shader = ui.Gradient.linear(
+        Offset.zero,
+        Offset(0, size.y),
+        [baseColor, darkColor],
+      )
+      ..style = PaintingStyle.fill;
+
+    _borderPaint = Paint()
+      ..color = Colors.white.withValues(alpha: 0.35)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.0;
+
+    _highlightPaint = Paint()
+      ..color = Colors.white.withValues(alpha: 0.35)
+      ..style = PaintingStyle.fill;
+
+    _gripPaint = Paint()
+      ..color = Colors.white.withValues(alpha: 0.28)
+      ..strokeWidth = 2.0
+      ..strokeCap = StrokeCap.round;
+  }
+
+  @override
+  void render(Canvas canvas) {
+    if (!_isInitialized) return;
+
+    // 1. Natural ground drop shadow (elevates paddle above the pitch)
+    canvas.drawRRect(_shadowRrect, _shadowPaint);
+
+    // 2. Smooth athletic striker body
+    canvas.drawRRect(_rrect, _bodyPaint);
+
+    // 3. Subtle top specular highlight
+    canvas.drawRRect(_highlightRrect, _highlightPaint);
+
+    // 4. Center tactile grip pinstripes
+    final centerX = size.x * 0.5;
+    final centerY = size.y * 0.5;
+    canvas.drawLine(Offset(centerX - 8, centerY - 3), Offset(centerX - 8, centerY + 3), _gripPaint);
+    canvas.drawLine(Offset(centerX, centerY - 4), Offset(centerX, centerY + 4), _gripPaint);
+    canvas.drawLine(Offset(centerX + 8, centerY - 3), Offset(centerX + 8, centerY + 3), _gripPaint);
+
+    // 5. Clean, elegant rim
+    canvas.drawRRect(_rrect, _borderPaint);
   }
 
   @override
   void onDragUpdate(DragUpdateEvent event) {
     if (!isPlayerControlled || !_isInitialized) return;
-    
-    // Ultra-fast drag handling with minimal calculations
+
+    // Direct position update for immediate response
     final deltaX = event.localDelta.x;
     final newX = (position.x + deltaX).clamp(0.0, _maxX);
-    
-    // Direct position update for immediate response
     position.x = newX;
   }
 
   @override
   void update(double dt) {
     super.update(dt);
-    
+
     // Only run AI for non-player controlled top bars
     if (!isPlayerControlled && !isBottom && _isInitialized) {
-      _updateAIOptimized(dt);
+      _updateAI(dt);
     }
   }
 
-  void _updateAIOptimized(double dt) {
-    _lastAIUpdate += dt;
-    _aiCacheTimer += dt;
-    
-    // Skip if not time for AI update
-    if (_lastAIUpdate < _aiUpdateInterval) return;
-    
-    final updateDt = _lastAIUpdate;
-    _lastAIUpdate = 0.0;
-
-    // Cache ball reference and target calculation less frequently
-    if (_ballCache == null || _aiCacheTimer >= _aiCacheInterval) {
-      _ballCache = gameRef.children.whereType<Ball>().firstOrNull;
-      _aiCacheTimer = 0.0;
-      _hasValidTarget = false;
-      
-      if (_ballCache != null) {
-        _calculateAITarget();
-      }
+  void _updateAI(double dt) {
+    // Ensure we have a valid ball reference
+    if (_ballCache == null || !_ballCache!.isMounted) {
+      _ballCache = game.children.whereType<Ball>().firstOrNull;
+      if (_ballCache == null) return;
     }
 
-    if (!_hasValidTarget || _ballCache == null) return;
-
-    // Ultra-fast movement calculation
-    final currentX = position.x;
-    final distance = (_targetX - currentX).abs();
-    
-    // Skip micro-movements for better performance
-    if (distance < movementThreshold) return;
-
-    // Optimized movement with direct calculation
-    final moveDistance = aiSpeed * updateDt;
-    final direction = (_targetX - currentX).sign;
-    final newX = (currentX + direction * moveDistance).clamp(0.0, _maxX);
-
-    // Apply movement with minimal smoothing
-    position.x = _lerpFast(currentX, newX, 0.95);
-  }
-
-  @pragma('vm:prefer-inline')
-  void _calculateAITarget() {
     final ball = _ballCache!;
     final ballVel = ball.velocity;
-    
-    // Skip if ball is moving away from this paddle
-    if (ballVel.y > 0) return; // Ball moving down, AI doesn't need to react
-    
-    // Fast prediction calculation
-    final yDiff = (ball.position.y - position.y).abs();
-    if (yDiff < 40) return; // Too close, don't calculate
-    
-    final timeToReach = yDiff / ballVel.y.abs();
-    final predictedX = ball.position.x + ballVel.x * timeToReach * predictionMultiplier;
-    
-    // Add controlled randomness for realistic behavior
-    final error = (_random.nextDouble() - 0.5) * errorVariance;
-    _targetX = (predictedX + error - _barHalfWidth).clamp(0.0, _maxX);
-    _hasValidTarget = true;
+
+    double targetCenterX;
+    double maxSpeed;
+
+    if (ballVel.y < 0) {
+      // Ball is moving towards the AI paddle (upwards)
+      // Directly track the ball's horizontal position
+      targetCenterX = ball.position.x;
+      maxSpeed = aiSpeed;
+    } else {
+      // Ball is moving away (downwards towards player)
+      // Smoothly return towards the center of the field for optimal defense
+      targetCenterX = game.size.x * 0.5;
+      maxSpeed = aiSpeed * 0.65;
+    }
+
+    final targetX = (targetCenterX - _barHalfWidth).clamp(0.0, _maxX);
+    final currentX = position.x;
+    final diff = targetX - currentX;
+    final distance = diff.abs();
+
+    // Deadzone: if already aligned within 0.5px, stay completely still
+    if (distance < 0.5) return;
+
+    // Smooth proportional speed: decelerates cleanly when close to target to prevent any overshoot
+    final desiredSpeed = (distance * 12.0).clamp(40.0, maxSpeed);
+    final step = desiredSpeed * dt;
+
+    if (step >= distance) {
+      position.x = targetX;
+    } else {
+      position.x += diff.sign * step;
+    }
   }
 
-  @pragma('vm:prefer-inline')
-  double _lerpFast(double start, double end, double t) {
-    return start + (end - start) * t;
-  }
-
-  // Optimized cache clearing
+  // Clear ball cache when game resets or restarts
   void clearBallCache() {
     _ballCache = null;
-    _aiCacheTimer = 0.0;
-    _hasValidTarget = false;
   }
 
   // Method for immediate position updates (for networking, etc.)
